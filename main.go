@@ -52,6 +52,7 @@ func createJsonTree(file *os.File) *tview.TreeView {
 					addNode(newNode, dec, ']')
 					node.AddChild(tview.NewTreeNode("]")).
 						SetSelectable(true)
+					return
 				}
 			case bool:
 				node.AddChild(tview.NewTreeNode(fmt.Sprintf("%v", v))).
@@ -97,10 +98,11 @@ func createJsonTree(file *os.File) *tview.TreeView {
 			// TODO: use real delim type not string
 			switch v := tok.(type) {
 			case json.Delim:
-				newNode := tview.NewTreeNode(v.String())
+				newNode := tview.NewTreeNode(keyText + ": " + v.String())
 				node.AddChild(newNode).SetSelectable(true)
+
 				if v.String() == "{" {
-					// create } node
+					addNode(newNode, dec, ']')
 					node.AddChild(tview.NewTreeNode("}")).
 						SetSelectable(true)
 				} else if v.String() == "[" {
@@ -128,7 +130,9 @@ func createJsonTree(file *os.File) *tview.TreeView {
 		return
 	}
 
-	addNode(root, json.NewDecoder(file), '}')
+	dec := json.NewDecoder(file)
+	dec.Token()
+	addNode(root, dec, '}')
 
 	return tree
 }
