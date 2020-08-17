@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/gdamore/tcell"
 	"github.com/rivo/tview"
+	"io"
 	"os"
 )
 
@@ -23,35 +24,34 @@ func createJsonTree(file *os.File) *tview.TreeView {
 	tree := tview.
 		NewTreeView().
 		SetRoot(root).
-		SetCurrentNode(root)
+		SetCurrentNode(root).
+		SetGraphics(false)
 
-	// Create decoder
-	dec := json.NewDecoder(file)
+	var addArray func(node *tview.TreeNode, dec *json.Decoder, delim byte)
+	var addNode func(node *tview.TreeNode, dec *json.Decoder, delim byte)
 
-	var addNode func(node *tview.TreeNode, delim byte)
-	addNode = func(node *tview.TreeNode, delim byte) {
-		for dec.More() {
-			// TODO error handle
-			tok, _ := dec.Token()
+	addArray = func(node *tview.TreeNode, dec *json.Decoder, delim byte) {
+		for {
+			// Get key or delim
+			tok, err := dec.Token()
+			if err == io.EOF {
+				return
+			}
 
-			// TODO: use real delim type not string
 			switch v := tok.(type) {
 			case json.Delim:
-				if v.String()[0] == delim {
-					return
-				}
-
 				newNode := tview.NewTreeNode(v.String())
 				node.AddChild(newNode).SetSelectable(true)
-
-				if v.String() == "{" {
-					fmt.Println("beg }")
-					addNode(newNode, '}')
-					fmt.Println("end }")
+				if v.String()[0] == delim {
+					return
+				} else if v.String() == "{" {
+					// create } node
+					node.AddChild(tview.NewTreeNode("}")).
+						SetSelectable(true)
 				} else if v.String() == "[" {
-					fmt.Println("beg ]")
-					addNode(newNode, ']')
-					fmt.Println("end ]")
+					addNode(newNode, dec, ']')
+					node.AddChild(tview.NewTreeNode("]")).
+						SetSelectable(true)
 				}
 			case bool:
 				node.AddChild(tview.NewTreeNode(fmt.Sprintf("%v", v))).
@@ -60,16 +60,75 @@ func createJsonTree(file *os.File) *tview.TreeView {
 				node.AddChild(tview.NewTreeNode(fmt.Sprintf("%v", v))).
 					SetSelectable(true)
 			case string:
-				node.AddChild(tview.NewTreeNode(v)).
+				node.AddChild(tview.NewTreeNode(fmt.Sprintf("%v", v))).
 					SetSelectable(true)
 			case nil:
-				node.AddChild(tview.NewTreeNode("null")).
+				node.AddChild(tview.NewTreeNode(fmt.Sprintf("null"))).
 					SetSelectable(true)
+			default:
+				fmt.Println("Error2: should not be here")
+				return
 			}
 		}
 	}
 
-	addNode(root, '}')
+	addNode = func(node *tview.TreeNode, dec *json.Decoder, delim byte) {
+		for {
+
+			// Get key or delim
+			tok, err := dec.Token()
+			if err == io.EOF {
+				return
+			}
+
+			if _, ok := tok.(json.Delim); ok {
+				return // TODO: test if right delim
+			}
+
+			// handle error
+			keyText, _ := tok.(string)
+
+			// Get value
+			tok, err = dec.Token()
+			if err == io.EOF {
+				break
+			}
+
+			// TODO: use real delim type not string
+			switch v := tok.(type) {
+			case json.Delim:
+				newNode := tview.NewTreeNode(v.String())
+				node.AddChild(newNode).SetSelectable(true)
+				if v.String() == "{" {
+					// create } node
+					node.AddChild(tview.NewTreeNode("}")).
+						SetSelectable(true)
+				} else if v.String() == "[" {
+					addArray(newNode, dec, ']')
+					node.AddChild(tview.NewTreeNode("]")).
+						SetSelectable(true)
+				}
+			case bool:
+				node.AddChild(tview.NewTreeNode(fmt.Sprintf("%s: %v", keyText, v))).
+					SetSelectable(true)
+			case float64:
+				node.AddChild(tview.NewTreeNode(fmt.Sprintf("%s: %v", keyText, v))).
+					SetSelectable(true)
+			case string:
+				node.AddChild(tview.NewTreeNode(fmt.Sprintf("%s: %v", keyText, v))).
+					SetSelectable(true)
+			case nil:
+				node.AddChild(tview.NewTreeNode(fmt.Sprintf("%s: null", keyText))).
+					SetSelectable(true)
+			default:
+				fmt.Println("Error2: should not be here")
+				return
+			}
+		}
+		return
+	}
+
+	addNode(root, json.NewDecoder(file), '}')
 
 	return tree
 }
@@ -82,7 +141,6 @@ func main() {
 	tree.SetSelectedFunc(func(node *tview.TreeNode) {
 		//reference := node.GetReference()
 		node.SetExpanded(!node.IsExpanded())
-		fmt.Println("test")
 	})
 
 	// handle additional key presses
